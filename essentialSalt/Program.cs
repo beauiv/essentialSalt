@@ -7,6 +7,7 @@ using System.IO;
 using System.Threading.Tasks;
 using essentialSalt.jsonData;
 using Newtonsoft.Json;
+using System.Threading;
 
 namespace essentialSalt
 {
@@ -14,7 +15,11 @@ namespace essentialSalt
     {
         static void Main(string[] args)
         {
+#pragma warning disable CS0168 // Variable is declared but never used
             CookieContainer userCookie;
+            matchstatsJson currentMatch = null;
+            chatJson currentChat = null;
+#pragma warning restore CS0168 // Variable is declared but never used
             //check if cookie exists, if not we can't proceed, if it does exist put it together!
             try
             {
@@ -30,8 +35,29 @@ namespace essentialSalt
                 Console.ReadKey();
                 return;
             }
-            //getCurrentMatchStats(makeCookieContainer());
-            Console.ReadKey();
+            currentMatch = getCurrentMatchStats(makeCookieContainer());
+            
+            while(true)
+            {
+                currentChat = getChat();
+                for (int p = 0; p < currentChat.messages.Length; p++)
+                {
+                    if(currentChat.messages[p].user.displayName == "WAIFU4u")
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine(currentChat.messages[p].user.displayName + ": " + currentChat.messages[p].message);
+                        Console.ResetColor();
+                    }
+                    
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.WriteLine(currentChat.messages[p].user.displayName + ": " + currentChat.messages[p].message);
+                        Console.ResetColor();
+                    }
+                }
+                Thread.Sleep(15000);
+            }
 
         }
 
@@ -39,6 +65,8 @@ namespace essentialSalt
         {
             var cookieContainer = new CookieContainer();
             //get cookie
+            //test
+            //change this to store in memory rather than read and each run
             var saltyCookie = File.ReadAllText("cookie.txt");
             //split into its two parts seperated by the space inbetween them, remove the semicolon
             string[] cookieDetails = saltyCookie.Replace(";","").Split(' ');
@@ -53,9 +81,10 @@ namespace essentialSalt
             }      
             //give cookie to be used in requests/posts
             return cookieContainer;
-        }
 
-        private static void getCurrentMatchStats(CookieContainer cookieContainer)
+            }
+
+        private static matchstatsJson getCurrentMatchStats(CookieContainer cookieContainer)
         {
             matchstatsJson matchStatsJson = null;
             string matchStats = null;
@@ -79,12 +108,35 @@ namespace essentialSalt
                 Console.WriteLine("cannot retrieve match stats");
             }
 
-            var matchds = JsonConvert.DeserializeObject<matchstatsJson>(matchStats);
-            //print them stats!
-            Console.WriteLine(matchStats);
-            //Console.WriteLine(matchds.p1life);
+            return matchStatsJson = JsonConvert.DeserializeObject<matchstatsJson>(matchStats);
 
+            }
+
+        private static chatJson getChat()
+        {
+            chatJson chatDS = null;
+            string chat = null;
+            try
+            {
+                var request = (HttpWebRequest)WebRequest.Create("https://api.betterttv.net/2/channels/saltybet/history");
+                var response = (HttpWebResponse)request.GetResponse();
+                using (var responseStream = response.GetResponseStream())
+                {
+                    if (responseStream != null)
+                    {
+                        var encoding = Encoding.GetEncoding("utf-8");
+                        var StreamReader = new StreamReader(responseStream, encoding);
+                        chat = StreamReader.ReadToEnd();
+                        
+                    }
+                }
+            }
+            catch
+            {
+                Console.WriteLine("Can't read chat, less twitch chat cancer for me!");
+            }
+            return chatDS = JsonConvert.DeserializeObject<chatJson>(chat);
         }
 
-    }
+        }
 }

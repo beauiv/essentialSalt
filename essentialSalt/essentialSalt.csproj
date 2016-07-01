@@ -47,7 +47,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="jsonData\chatJson.cs" />
     <Compile Include="jsonData\matchstatsJson.cs" />
+    <Compile Include="objects\fighter.cs" />
+    <Compile Include="objects\match.cs" />
+    <Compile Include="objects\wager.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
