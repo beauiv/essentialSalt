@@ -21,8 +21,6 @@ namespace essentialSalt.jsonData
             public object[] usedEmotes { get; set; }
             public Parsedemotes parsedEmotes { get; set; }
             public User user { get; set; }
-
-
         }
 
         public class Channel
