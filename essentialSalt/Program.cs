@@ -19,15 +19,13 @@ namespace essentialSalt
     {
         static void Main(string[] args)
         {
-#pragma warning disable CS0168 // Variable is declared but never used
             CookieContainer userCookie;
             matchstatsJson currentMatch = null;
             chatJson currentChat = null;
-#pragma warning restore CS0168 // Variable is declared but never used
             //check if cookie exists, if not we can't proceed, if it does exist put it together!
             try
             {
-                makeCookieContainer();
+                userCookie = makeCookieContainer();
             }
             catch
             {
@@ -49,9 +47,10 @@ namespace essentialSalt
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
                         Console.WriteLine(currentChat.messages[p].user.displayName + ": " + currentChat.messages[p].message);
-                        Console.WriteLine("bets open or closed, wait for new data");
+                        Console.WriteLine("bets open or closed, wait for winner");
                         Console.ResetColor();
                         buildCurrentMatch(makeCookieContainer());
+                        break;
 
                     }
                     else if (currentChat.messages[p].user.displayName == "WAIFU4u")
@@ -72,9 +71,8 @@ namespace essentialSalt
                 
 
             }
-           
-            buildCurrentMatch(makeCookieContainer());
-            Console.ReadKey();
+
+
 
         }
 
@@ -225,74 +223,119 @@ namespace essentialSalt
             //happens when waifu says bets are open
             //add fight to db
             //record win or loss
+
+            //TODO 7-3-2016 REACH TWITCH CHAT BETTER, CONNECT DIRECTLY TO IRC? WE KEEP MISSING WIN MESSAGES, ALSO CLEAN UP THIS SHITSTORM BELOW
             stateJson currentState = getCurrentState(cookieContainer);
             SqlConnection sqlCon = new SqlConnection();
             sqlCon.ConnectionString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename = 'C:\\Users\\Vamp\\documents\\visual studio 2015\\Projects\\essentialSalt\\essentialSalt\\essentialSaltStorage.mdf'; Integrated Security = True";
             SqlCommand cmd = new SqlCommand();
             cmd.Connection = sqlCon;
             //for sql
-            string name = currentState.p1name + currentState.p2name;
-            name = name.Trim();
+            string name = currentState.p1name + currentState.p2name;     
             Console.WriteLine(name);
             string RedTeam = currentState.p1name;
-            RedTeam = RedTeam.Trim();
             Console.WriteLine(RedTeam);
             string BlueTeam = currentState.p2name;
-            BlueTeam = BlueTeam.Trim();
             Console.WriteLine(BlueTeam);
             DateTime dtNow = DateTime.Now;
-            //7-1-2016 110am eastern something is wrong with these queries fix them and get teh database working
-            string sqlFindName = "SELECT COUNT(*) from Matches WHERE name = " + "'" + name + "'";
-            string sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedWins, BlueWins, lastUpdated) VALUES ("+name+", "+RedTeam+", "+BlueTeam+",0,0, "+dtNow+")";
-            string updateRedWin = "UPDATE Matches set RedWins = RedWins + 1, lastUpdated = "+dtNow+" WHERE name = " + name;
-            string updateBlueWin = "UPDATE Matches set BlueWins = BlueWins + 1, lastUpdated = " + dtNow + " WHERE name = " + name;
+            string sqlFindName = "SELECT COUNT(*) from Matches WHERE name LIKE " + "'" + name + "';";
+            string sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedWins, BlueWins, lastUpdated) VALUES ('"+name+"', '"+RedTeam+"', '"+BlueTeam+"','0','0', '"+dtNow+"');";
+            string updateRedWin = "UPDATE Matches set RedWins = RedWins + 1, lastUpdated = '"+dtNow+"' WHERE name = '" + name + "';";
+            string updateBlueWin = "UPDATE Matches set BlueWins = BlueWins + 1, lastUpdated = '" + dtNow + "' WHERE name = '" + name+"';";
 
             try
             {
+                bool fighting = true;
                 int count = 0;
                 sqlCon.Open();
-                Console.WriteLine("connected to db");
+                //Console.WriteLine("connected to db");
                 cmd.CommandText = sqlFindName;
-                if((int)cmd.ExecuteScalar() == 0)
+                Console.WriteLine(cmd.ExecuteScalar().ToString());
+                if ((int)cmd.ExecuteScalar() == 0)
                 {
                     cmd.CommandText = sqlAddMatch;
                     //we can't find this match in our db add it to the db.
                     cmd.ExecuteNonQuery();
                     Console.WriteLine("added new match data");
-                }
-                //match already exists wait for win or lose update
-                else
-                {
-                    while (true)
+                    Console.WriteLine("Waiting for winner");
+                    while (fighting)
                     {
                         chatJson currentChat = getChat();
                         for (int p = 0; p < currentChat.messages.Length; p++)
                         {
                             if (currentChat.messages[p].user.displayName == "WAIFU4u")
                             {
-                                if (currentChat.messages[p].message.Contains(RedTeam))
+                                if (currentChat.messages[p].message.Contains(RedTeam) && currentChat.messages[p].message.Contains("wins"))
                                 {
                                     cmd.CommandText = updateRedWin;
                                     cmd.ExecuteNonQuery();
                                     Console.WriteLine("red won");
-                                    break;
+                                    fighting = false;
                                 }
-                                else if (currentChat.messages[p].message.Contains(BlueTeam))
+                                else if (currentChat.messages[p].message.Contains(BlueTeam) && currentChat.messages[p].message.Contains("wins"))
                                 {
                                     cmd.CommandText = updateBlueWin;
                                     cmd.ExecuteNonQuery();
                                     Console.WriteLine("blue won");
-                                    break;
+                                    fighting = false;
                                 }
+                                //add case in where we see bets are open and we missed the winner,instead of waiting the full 6 mins or so
                             }
+                            
                         }
-                        count++;
-                        if (count > 19)
+                        if (fighting)
+                        {
+                            Console.WriteLine("No winner yet, " + (360 - (count * 15)) + " seconds remaining.");
+                            count++;
+                            Thread.Sleep(15000);
+                        }
+
+                        if (count > 24) // wait 6 mins for winner
                         {
                             Console.WriteLine("we missed the win message or our team name identifier sucks");
-                            break;
+                            fighting = false;
                         }
-                        Thread.Sleep(15000);
+                    }
+                }
+                //match already exists wait for win or lose update
+                else if ((int)cmd.ExecuteScalar() != 0)
+                {
+                    while (fighting)
+                    {
+                        chatJson currentChat = getChat();
+                        for (int p = 0; p < currentChat.messages.Length; p++)
+                        {
+                            if (currentChat.messages[p].user.displayName == "WAIFU4u")
+                            {
+                                if (currentChat.messages[p].message.Contains(RedTeam) && currentChat.messages[p].message.Contains("wins"))
+                                {
+                                    cmd.CommandText = updateRedWin;
+                                    cmd.ExecuteNonQuery();
+                                    Console.WriteLine("red won");
+                                    fighting = false;
+                                }
+                                else if (currentChat.messages[p].message.Contains(BlueTeam) && currentChat.messages[p].message.Contains("wins"))
+                                {
+                                    cmd.CommandText = updateBlueWin;
+                                    cmd.ExecuteNonQuery();
+                                    Console.WriteLine("blue won");
+                                    fighting = false;
+                                }
+                                //add case in where we see bets are open and we missed the winner,instead of waiting the full 6 mins or so
+                            }
+                        }
+                        if(fighting)
+                        {
+                            Console.WriteLine("No winner yet, " + (360 - (count * 15)) + " seconds remaining.");
+                            count++;
+                            Thread.Sleep(15000);
+                        }
+
+                        if (count > 24) // wait 6 mins for winner
+                        {
+                            Console.WriteLine("we missed the win message");
+                            fighting = false;
+                        }
                     }
                 }
             }
