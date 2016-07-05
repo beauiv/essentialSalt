@@ -70,8 +70,7 @@
     <Compile Include="jsonData\stateJson.cs" />
     <Compile Include="jsonData\matchstatsJson.cs" />
     <Compile Include="objects\fighter.cs" />
-    <Compile Include="objects\match.cs" />
-    <Compile Include="objects\wager.cs" />
+    <Compile Include="objects\ircClient.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

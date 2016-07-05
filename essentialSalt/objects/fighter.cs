@@ -16,5 +16,18 @@ namespace essentialSalt.objects
         public string author { get; set; }
         public int palette { get; set; }
 
+        public fighter(string n, int tM, int wR, string t, int l, string a, int p)
+        {
+            this.name = n;
+            this.totalMatches = tM;
+            this.winRate = wR;
+            this.tier = t;
+            this.life = l;
+            this.author = a;
+            this.palette = p;
+        }
+
     }
+
+
 }
