@@ -22,7 +22,7 @@ namespace essentialSalt
         public static ircClient irc;
         public static string waifu = "waifu4u!waifu4u@waifu4u.tmi.twitch.tv";
         public static SqlConnection sqlCon = new SqlConnection();
-        public static string sqlConnectString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename = 'C:\\Users\\Vamp\\documents\\visual studio 2015\\Projects\\essentialSalt\\essentialSalt\\essentialSaltStorage.mdf'; Integrated Security = True";
+        public static string sqlConnectString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename ='" + AppDomain.CurrentDomain.BaseDirectory + "essentialSaltStorage.mdf'; Integrated Security = True";
 
         static void Main(string[] args)
         {
@@ -318,7 +318,7 @@ namespace essentialSalt
             if (currentMatch.p1name.Contains("/") || currentMatch.p2name.Contains("/"))
             {
                 //3-4 player match
-                string[] redNames = currentMatch.p1name.Replace("'","").Split('/');
+                string[] redNames = currentMatch.p1name.Replace("'", "").Split('/');
                 string[] redTotalMatches = currentMatch.p1totalmatches.Split('/');
                 string[] redWinRate = currentMatch.p1winrate.Split('/');
                 string[] redTier = currentMatch.p1tier.Split('/');
@@ -335,15 +335,15 @@ namespace essentialSalt
                 string[] bluePalette = currentMatch.p2palette.Split('/');
 
                 RedFighter1 = new fighter(redNames[0], Convert.ToInt32(redTotalMatches[0]), Convert.ToInt32(redWinRate[0]), redTier[0], Convert.ToInt32(redLife[0]), redAuthor[0], Convert.ToInt32(redPalette[0]));
-                if(redNames.Count() > 1)
+                if (redNames.Count() > 1)
                 {
-                     RedFighter2 = new fighter(redNames[1], Convert.ToInt32(redTotalMatches[1]), Convert.ToInt32(redWinRate[1]), redTier[1], Convert.ToInt32(redLife[1]), redAuthor[1], Convert.ToInt32(redPalette[1]));
+                    RedFighter2 = new fighter(redNames[1], Convert.ToInt32(redTotalMatches[1]), Convert.ToInt32(redWinRate[1]), redTier[1], Convert.ToInt32(redLife[1]), redAuthor[1], Convert.ToInt32(redPalette[1]));
                 }
-                
+
                 BlueFighter1 = new fighter(blueNames[0], Convert.ToInt32(blueTotalMatches[0]), Convert.ToInt32(blueWinRate[0]), blueTier[0], Convert.ToInt32(blueLife[0]), blueAuthor[0], Convert.ToInt32(bluePalette[0]));
 
                 Fighters.Add(RedFighter1);
-                if(RedFighter2 != null)
+                if (RedFighter2 != null)
                 {
                     Fighters.Add(RedFighter2);
                 }
@@ -390,30 +390,28 @@ namespace essentialSalt
             int fighterCount = currentFighters.Count();
             double redScore = 0;
             double blueScore = 0;
-            SqlCommand getRedWins = new SqlCommand("SELECT * where name like '" + matchName + "';");
-            SqlCommand getBlueWins = new SqlCommand("SELECT * where name like '" + matchName + "';");
+            SqlCommand getRedWins = new SqlCommand("select RedWins from Matches where name like '" + matchName + "';");
+            SqlCommand getBlueWins = new SqlCommand("select BlueWins from Matches where name like '" + matchName + "';");
             getRedWins.Connection = sqlCon;
             getBlueWins.Connection = sqlCon;
             int redWins = 0;
             int blueWins = 0;
-            /* shits broken for now
             try
             {
-                if ((int)getRedWins.ExecuteScalar() == 1)
+                using (SqlDataReader dataReader1 = getRedWins.ExecuteReader())
                 {
-                    using (SqlDataReader dataReader1 = getRedWins.ExecuteReader())
+                    while (dataReader1.Read())
                     {
-                        while (dataReader1.Read())
-                        {
-                            redWins = Convert.ToInt32(dataReader1["redWins"]);
-                        }
+                        redWins = Convert.ToInt32(dataReader1["RedWins"]);
+                        Console.WriteLine("Red Wins for Current Matchup: " + redWins);
                     }
-                    using (SqlDataReader dataReader2 = getBlueWins.ExecuteReader())
+                }
+                using (SqlDataReader dataReader2 = getBlueWins.ExecuteReader())
+                {
+                    while (dataReader2.Read())
                     {
-                        while (dataReader2.Read())
-                        {
-                            blueWins = Convert.ToInt32(dataReader2["BlueWins"]);
-                        }
+                        blueWins = Convert.ToInt32(dataReader2["BlueWins"]);
+                        Console.WriteLine("Blue Wins for Current Matchup: " + blueWins);
                     }
                 }
             }
@@ -421,19 +419,18 @@ namespace essentialSalt
             {
                 Console.WriteLine("Error checking Red vs Blue wins.");
             }
-            */
             if (fighterCount == 2)
             {
-                redScore = makeFighterScore(currentFighters[0].winRate, currentFighters[0].totalMatches, currentFighters[0].tier, currentFighters[0].palette);
-                blueScore = makeFighterScore(currentFighters[1].winRate, currentFighters[1].totalMatches, currentFighters[1].tier, currentFighters[1].palette);
+                redScore = currentFighters[0].getFighterScore();
+                blueScore = currentFighters[1].getFighterScore();
 
-                if(redWins > blueWins)
+                if (redWins > blueWins)
                 {
-                    redScore += 25; //we've seen red win alot before
+                    redScore += 15;
                 }
-                else if(blueWins > redWins)
+                else if (blueWins > redWins)
                 {
-                    blueScore += 25; //we've seen blue win alot more
+                    blueScore += 15;
                 }
 
                 if (redScore > blueScore)
@@ -451,16 +448,16 @@ namespace essentialSalt
             }
             else if (fighterCount == 3)
             {
-                redScore = (makeFighterScore(currentFighters[0].winRate, currentFighters[0].totalMatches, currentFighters[0].tier, currentFighters[0].palette) + makeFighterScore(currentFighters[1].winRate, currentFighters[1].totalMatches, currentFighters[1].tier, currentFighters[1].palette)) / 2;
-                blueScore = makeFighterScore(currentFighters[2].winRate, currentFighters[2].totalMatches, currentFighters[2].tier, currentFighters[2].palette);
+                redScore = (currentFighters[0].getFighterScore() + currentFighters[1].getFighterScore()) / 2;
+                blueScore = currentFighters[2].getFighterScore();
 
                 if (redWins > blueWins)
                 {
-                    redScore += 25; //we've seen red win alot before
+                    redScore += 15;
                 }
                 else if (blueWins > redWins)
                 {
-                    blueScore += 25; //we've seen blue win alot more
+                    blueScore += 15;
                 }
 
                 if (redScore > blueScore)
@@ -478,16 +475,16 @@ namespace essentialSalt
             }
             else
             {
-                redScore = (makeFighterScore(currentFighters[0].winRate, currentFighters[0].totalMatches, currentFighters[0].tier, currentFighters[0].palette) + makeFighterScore(currentFighters[1].winRate, currentFighters[1].totalMatches, currentFighters[1].tier, currentFighters[1].palette)) / 2;
-                redScore = (makeFighterScore(currentFighters[2].winRate, currentFighters[2].totalMatches, currentFighters[2].tier, currentFighters[2].palette) + makeFighterScore(currentFighters[3].winRate, currentFighters[3].totalMatches, currentFighters[3].tier, currentFighters[3].palette)) / 2;
+                redScore = (currentFighters[0].getFighterScore() + currentFighters[1].getFighterScore()) / 2;
+                redScore = (currentFighters[2].getFighterScore() + currentFighters[3].getFighterScore()) / 2;
 
                 if (redWins > blueWins)
                 {
-                    redScore += 25; //we've seen red win alot before
+                    redScore += 15;
                 }
                 else if (blueWins > redWins)
                 {
-                    blueScore += 25; //we've seen blue win alot more
+                    blueScore += 15;
                 }
 
                 if (redScore > blueScore)
@@ -506,68 +503,16 @@ namespace essentialSalt
 
         }
 
-        private static double makeFighterScore(int winRate, int totalMatches, string tier, int palette)
-        {           
-            double mult = 1;
-            double tierScore = 1;
-            double score = ((Convert.ToDouble(winRate) /10));
-
-            Console.WriteLine(score);
-            
-            if (tier.Contains("P") || tier.Contains("NEW"))
-            {
-                tierScore = 1;
-            }
-            else if (tier.Contains("B"))
-            {
-                tierScore = 2;
-            }
-            else if (tier.Contains("A"))
-            {
-                tierScore = 5;
-            }
-            else if (tier.Contains("S"))
-            {
-                tierScore = 10;
-            }
-            else if (tier.Contains("X"))
-            {
-                tierScore = 25;
-            }
-
-            if (palette >= 2 || palette <= 8)
-            {
-                mult = 1.35;
-            }
-            else if (palette >= 9 || palette <= 10)
-            {
-                mult = 1.9;
-            }
-            else if (palette == 12 || palette == 11)
-            {
-                mult = 5;
-            }
-
-            score = score + (tierScore * mult);
-
-            if (winRate > 90) // wow you nearly never lose, lets give you priority
-            {
-                score += 25;
-            }
-            return score;
-        }
-
         private static void makeBet(CookieContainer cookieContainer, List<fighter> currentFighters, int balance, string matchName)
         {
             try
             {
-                //bool team = isRedBestBet(currentFighters, matchName);
                 var request = (HttpWebRequest)WebRequest.Create("http://www.saltybet.com/ajax_place_bet.php");
                 request.CookieContainer = cookieContainer;
                 var postData = "selectedplayer=player" + (isRedBestBet(currentFighters, matchName) ? 1 : 2);
-                //force 2% bet for testing
-                Console.WriteLine((int)(balance * 0.1));
-                postData += "&wager=" + (int)(balance * 0.1);
+                //force 5% bet for testing todo: add betting logic based on current mode
+                Console.WriteLine((int)(balance * 0.05));
+                postData += "&wager=" + (int)(balance * 0.05);
                 var data = Encoding.ASCII.GetBytes(postData);
 
                 request.Method = "POST";
