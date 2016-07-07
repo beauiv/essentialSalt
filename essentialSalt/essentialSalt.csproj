@@ -66,6 +66,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="enums\betMode.cs" />
     <Compile Include="jsonData\chatJson.cs" />
     <Compile Include="jsonData\stateJson.cs" />
     <Compile Include="jsonData\matchstatsJson.cs" />

@@ -12,6 +12,7 @@ using System.Threading;
 using HtmlAgilityPack;
 using System.Text.RegularExpressions;
 using essentialSalt.objects;
+using essentialSalt.enums;
 
 namespace essentialSalt
 {
@@ -25,6 +26,8 @@ namespace essentialSalt
         public static string sqlConnectString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename ='" + AppDomain.CurrentDomain.BaseDirectory + "essentialSaltStorage.mdf'; Integrated Security = True";
         public static int wins = 0;
         public static int losses = 0;
+        public static bool isRedTeam;
+        private static double betModifier = 0.03; // our default, most conservative bet 3% of our balance, used for exhibs
 
         static void Main(string[] args)
         {
@@ -144,6 +147,29 @@ namespace essentialSalt
 
         }
 
+        private static betMode setBetMode(stateJson currentState)
+        {
+            betMode mode = betMode.Exhibitions; //default to exhibitions, our most reserved betting mode
+
+            if (currentState.remaining.Contains("until the next tournament") ||
+                currentState.remaining.Contains("Matchmaking mode has been") ||
+                currentState.remaining.Contains("Tournament mode will be"))
+            {
+                //matchmaking
+                mode = betMode.Matchmaking;
+            }
+
+            else if (currentState.remaining.Contains("characters are left in the bracket") ||
+                         currentState.remaining.Contains("Tournament mode start") ||
+                         currentState.remaining.Contains("FINAL ROUND"))
+            {
+                //tournament
+                mode = betMode.Tournament;
+            }
+
+            return mode;
+        }
+
         private static int getBalance(CookieContainer cookieContainer)
         {
             string bankSource = null;
@@ -195,6 +221,18 @@ namespace essentialSalt
             string BlueTeam = currentState.p2name;
             int countFighters = currentFighters.Count;
             string name = null;
+            try
+            {
+                //figure out how to bet by getting bet mode
+                setBetModifier(setBetMode(currentState));
+            }
+            catch(Exception e)
+            {
+                Console.WriteLine("Cannot set bet modifier");
+                Console.WriteLine(e.Message);
+            }
+
+
             if (countFighters == 2)
             {
                 name = currentFighters[0].name + currentFighters[1].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[0].palette + currentFighters[1].palette;
@@ -228,14 +266,7 @@ namespace essentialSalt
                                 Console.WriteLine(message);
                                 updateWin("RedWins", name);
                                 Console.WriteLine("red won");
-                                if (isRedBestBet(currentFighters, name))
-                                {
-                                    wins++;
-                                }
-                                else
-                                {
-                                    losses++;
-                                }
+                                redWinInc();
                                 Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
@@ -244,14 +275,7 @@ namespace essentialSalt
                                 Console.WriteLine(message);
                                 updateWin("BlueWins", name);
                                 Console.WriteLine("blue won");
-                                if (isRedBestBet(currentFighters, name))
-                                {
-                                    losses++;
-                                }
-                                else
-                                {
-                                    wins++;
-                                }
+                                blueWinInc();
                                 Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
@@ -279,14 +303,7 @@ namespace essentialSalt
                                 Console.WriteLine(message);
                                 updateWin("RedWins", name);
                                 Console.WriteLine("red won");
-                                if (isRedBestBet(currentFighters, name))
-                                {
-                                    wins++;
-                                }
-                                else
-                                {
-                                    losses++;
-                                }
+                                redWinInc();
                                 Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
@@ -295,14 +312,7 @@ namespace essentialSalt
                                 Console.WriteLine(message);
                                 updateWin("BlueWins", name);
                                 Console.WriteLine("blue won");
-                                if (isRedBestBet(currentFighters, name))
-                                {
-                                    losses++;
-                                }
-                                else
-                                {
-                                    wins++;
-                                }
+                                blueWinInc();
                                 Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
@@ -403,6 +413,22 @@ namespace essentialSalt
             return Fighters;
         }
 
+        private static void setBetModifier(betMode mode)
+        {
+            if(mode == betMode.Tournament)
+            {
+                betModifier = 1;
+            }
+            else if(mode == betMode.Matchmaking)
+            {
+                betModifier = 0.20;
+            }
+            else
+            {
+                betModifier = 0.10;
+            }
+        }
+
         private static bool isRedBestBet(List<fighter> currentFighters, string matchName)
         {
             sqlCon.ConnectionString = sqlConnectString;
@@ -450,9 +476,9 @@ namespace essentialSalt
                     if (redScore - blueScore <= 3)
                     {
                         Console.WriteLine("Close match, lets bet underdog");
-                        return false;
+                        return isRedTeam = false;
                     }
-                    return true;
+                    return isRedTeam = true;
                 }
                 else
                 {
@@ -461,9 +487,9 @@ namespace essentialSalt
                     if (blueScore - redScore <= 3)
                     {
                         Console.WriteLine("Close match, lets bet underdog");
-                        return true;
+                        return isRedTeam = true;
                     }
-                    return false;
+                    return isRedTeam = false;
                 }
             }
             else if (fighterCount == 3)
@@ -487,9 +513,11 @@ namespace essentialSalt
                     if (redScore - blueScore <= 3)
                     {
                         Console.WriteLine("Close match, lets bet underdog");
-                        return false;
+
+                        return isRedTeam = false;
                     }
-                    return true;
+
+                    return isRedTeam = true;
                 }
                 else
                 {
@@ -498,9 +526,11 @@ namespace essentialSalt
                     if (blueScore - redScore <= 3)
                     {
                         Console.WriteLine("Close match, lets bet underdog");
-                        return true;
+
+                        return isRedTeam = true;
                     }
-                    return false;
+
+                    return isRedTeam = false;
                 }
             }
             else
@@ -524,9 +554,9 @@ namespace essentialSalt
                     if (redScore - blueScore <= 3)
                     {
                         Console.WriteLine("Close match, lets bet underdog");
-                        return false;
+                        return isRedTeam = false;
                     }
-                    return true;
+                    return isRedTeam = true;
                 }
                 else
                 {
@@ -535,9 +565,9 @@ namespace essentialSalt
                     if (blueScore - redScore <= 3)
                     {
                         Console.WriteLine("Close match, lets bet underdog");
-                        return true;
+                        return isRedTeam = true;
                     }
-                    return false;
+                    return isRedTeam = false;
                 }
             }
 
@@ -551,8 +581,8 @@ namespace essentialSalt
                 request.CookieContainer = cookieContainer;
                 var postData = "selectedplayer=player" + (isRedBestBet(currentFighters, matchName) ? 1 : 2);
                 //force 5% bet for testing todo: add betting logic based on current mode
-                Console.WriteLine((int)(balance * 0.05));
-                postData += "&wager=" + (int)(balance * 0.05);
+                Console.WriteLine("Bet placed: $" +(int)(balance * betModifier));
+                postData += "&wager=" + (int)(balance * betModifier);
                 var data = Encoding.ASCII.GetBytes(postData);
 
                 request.Method = "POST";
@@ -642,6 +672,35 @@ namespace essentialSalt
                 Console.WriteLine(e.Message);
             }
         }
+
+        private static void blueWinInc()
+        {
+            if (!isRedTeam)
+            {
+                wins++;
+            }
+            else
+            {
+                losses++;
+            }
+        }
+
+        private static void redWinInc()
+        {
+            if (isRedTeam)
+            {
+                wins++;
+            }
+            else
+            {
+                losses++;
+            }
+        }
+
+
+
+
+
 
     }
 }
