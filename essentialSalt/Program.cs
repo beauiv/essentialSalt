@@ -23,13 +23,14 @@ namespace essentialSalt
         public static string waifu = "waifu4u!waifu4u@waifu4u.tmi.twitch.tv";
         public static SqlConnection sqlCon = new SqlConnection();
         public static string sqlConnectString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename ='" + AppDomain.CurrentDomain.BaseDirectory + "essentialSaltStorage.mdf'; Integrated Security = True";
+        public static int wins = 0;
+        public static int losses = 0;
 
         static void Main(string[] args)
         {
             string oauth = File.ReadAllText("oauth.txt");
             sqlCon.ConnectionString = sqlConnectString;
             matchstatsJson currentMatch = null;
-
 
             try
             {
@@ -182,52 +183,38 @@ namespace essentialSalt
 
         private static void buildCurrentMatch(CookieContainer cookieContainer)
         {
-            //happens when waifu says bets are open
-            //add fight to db if it doesn't exist, then wait for win or loss message, update who won.
-            //if fight does exist, offer advice on who to bet on, wait for win/loss, update who won.
-
+        //happens when waifu says bets are open
+        //add fight to db if it doesn't exist, then wait for win or loss message, update who won.
+        //if fight does exist, offer advice on who to bet on, wait for win/loss, update who won.
+        gameCrash:
+            sqlCon.ConnectionString = sqlConnectString;
             stateJson currentState = getCurrentState(cookieContainer);
             matchstatsJson currentMatch = getCurrentMatchStats(cookieContainer);
             List<fighter> currentFighters = buildFighters(currentMatch);
-            SqlCommand cmd = new SqlCommand();
-            cmd.Connection = sqlCon;
-            DateTime dtNow = DateTime.Now;
             string RedTeam = currentState.p1name;
             string BlueTeam = currentState.p2name;
             int countFighters = currentFighters.Count;
-            string sqlAddMatch = null;
             string name = null;
-            string sqlFindName = "SELECT COUNT(*) from Matches WHERE name LIKE " + "'" + name + "';";
-            string updateRedWin = "UPDATE Matches set RedWins = RedWins + 1, lastUpdated = '" + dtNow + "' WHERE name = '" + name + "';";
-            string updateBlueWin = "UPDATE Matches set BlueWins = BlueWins + 1, lastUpdated = '" + dtNow + "' WHERE name = '" + name + "';";
-
             if (countFighters == 2)
             {
                 name = currentFighters[0].name + currentFighters[1].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[0].palette + currentFighters[1].palette;
-                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, BlueFighter1, RedFighter1Tier, BlueFighter1Tier, RedFighter1Palette, BlueFighter1Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','0','0', '" + dtNow + "');";
-
             }
             else if (countFighters == 3) // 3 fighter matches are going to be realllly wonky. unless the 2 players are always on the red team then I am just damn lucky.
             {
                 name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette;
-                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, RedFighter2, BlueFighter1, RedFighter1Tier, RedFighter2Tier, BlueFighter1Tier, RedFighter1Palette, RedFighter2Palette, BlueFighter1Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[2].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[2].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','" + currentFighters[2].palette + "','0','0', '" + dtNow + "');";
             }
             else
             {
                 name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[3].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[3].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette + currentFighters[3].palette;
-                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, RedFighter2, BlueFighter1, BlueFighter2, RedFighter1Tier, RedFighter2Tier, BlueFighter1Tier, BlueFighter2Tier, RedFighter1Palette, RedFighter2Palette, BlueFighter1Palette, BlueFighter2Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[2].name + "','" + currentFighters[3].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[2].tier + "','" + currentFighters[3].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','" + currentFighters[2].palette + "','" + currentFighters[3].palette + "','0','0', '" + dtNow + "');";
             }
 
             try
             {
                 bool fighting = true;
-                sqlCon.Open();
-                cmd.CommandText = sqlFindName;
-                if ((int)cmd.ExecuteScalar() == 0)
+                if (!addMatch(currentFighters, cookieContainer))
                 {
-                    cmd.CommandText = sqlAddMatch;
                     //we can't find this match in our db add it to the db.
-                    cmd.ExecuteNonQuery();
+                    //addmatch
                     Console.WriteLine("added new match data");
                     Console.WriteLine("Waiting for winner");
                     makeBet(cookieContainer, currentFighters, getBalance(cookieContainer), name);
@@ -239,30 +226,47 @@ namespace essentialSalt
                             if (message.Contains(RedTeam) && message.Contains("wins"))
                             {
                                 Console.WriteLine(message);
-                                cmd.CommandText = updateRedWin;
-                                cmd.ExecuteNonQuery();
+                                updateWin("RedWins", name);
                                 Console.WriteLine("red won");
+                                if (isRedBestBet(currentFighters, name))
+                                {
+                                    wins++;
+                                }
+                                else
+                                {
+                                    losses++;
+                                }
+                                Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
                             else if (message.Contains(BlueTeam) && message.Contains("wins"))
                             {
                                 Console.WriteLine(message);
-                                cmd.CommandText = updateBlueWin;
-                                cmd.ExecuteNonQuery();
+                                updateWin("BlueWins", name);
                                 Console.WriteLine("blue won");
+                                if (isRedBestBet(currentFighters, name))
+                                {
+                                    losses++;
+                                }
+                                else
+                                {
+                                    wins++;
+                                }
+                                Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
                             else if (message.Contains("Bets are OPEN"))
                             {
                                 Console.WriteLine(message);
-                                Console.WriteLine("We missed the winner message, break loop");
+                                Console.WriteLine("We missed the winner message or the game possibly crashed, start over");
                                 fighting = false;
+                                goto gameCrash;
                             }
                         }
                     }
                 }
                 //match already exists wait for win or lose update
-                else if ((int)cmd.ExecuteScalar() != 0)
+                else
                 {
                     while (fighting)
                     {
@@ -273,38 +277,52 @@ namespace essentialSalt
                             if (message.Contains(RedTeam) && message.Contains("wins"))
                             {
                                 Console.WriteLine(message);
-                                cmd.CommandText = updateRedWin;
-                                cmd.ExecuteNonQuery();
+                                updateWin("RedWins", name);
                                 Console.WriteLine("red won");
+                                if (isRedBestBet(currentFighters, name))
+                                {
+                                    wins++;
+                                }
+                                else
+                                {
+                                    losses++;
+                                }
+                                Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
                             else if (message.Contains(BlueTeam) && message.Contains("wins"))
                             {
                                 Console.WriteLine(message);
-                                cmd.CommandText = updateBlueWin;
-                                cmd.ExecuteNonQuery();
+                                updateWin("BlueWins", name);
                                 Console.WriteLine("blue won");
+                                if (isRedBestBet(currentFighters, name))
+                                {
+                                    losses++;
+                                }
+                                else
+                                {
+                                    wins++;
+                                }
+                                Console.WriteLine("W/L: " + wins + "/" + losses);
                                 fighting = false;
                             }
                             else if (message.Contains("Bets are OPEN"))
                             {
                                 Console.WriteLine(message);
-                                Console.WriteLine("We missed the winner message, break loop");
+                                Console.WriteLine("We missed the winner message or the game possibly crashed, start over");
                                 fighting = false;
+                                goto gameCrash;
                             }
                         }
                     }
                 }
             }
-
-
-
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
                 //Console.WriteLine("Could not Connect to DB");
             }
-            sqlCon.Close();
+
         }
 
         private static List<fighter> buildFighters(matchstatsJson currentMatch)
@@ -387,37 +405,29 @@ namespace essentialSalt
 
         private static bool isRedBestBet(List<fighter> currentFighters, string matchName)
         {
+            sqlCon.ConnectionString = sqlConnectString;
+            int? redWins = null;
+            int? blueWins = null;
             int fighterCount = currentFighters.Count();
             double redScore = 0;
             double blueScore = 0;
-            SqlCommand getRedWins = new SqlCommand("select RedWins from Matches where name like '" + matchName + "';");
-            SqlCommand getBlueWins = new SqlCommand("select BlueWins from Matches where name like '" + matchName + "';");
-            getRedWins.Connection = sqlCon;
-            getBlueWins.Connection = sqlCon;
-            int redWins = 0;
-            int blueWins = 0;
-            try
+            SqlCommand getRedWins = new SqlCommand("select RedWins from Matches where name like '" + matchName + "';", sqlCon);
+            SqlCommand getBlueWins = new SqlCommand("select BlueWins from Matches where name like '" + matchName + "';", sqlCon);
+
+            using (sqlCon)
             {
-                using (SqlDataReader dataReader1 = getRedWins.ExecuteReader())
+                sqlCon.Open();
+                try
                 {
-                    while (dataReader1.Read())
-                    {
-                        redWins = Convert.ToInt32(dataReader1["RedWins"]);
-                        Console.WriteLine("Red Wins for Current Matchup: " + redWins);
-                    }
+                    redWins = (Int32)getRedWins.ExecuteScalar();
+                    Console.WriteLine("Red Wins for Current Matchup: " + redWins);
+                    blueWins = (Int32)getBlueWins.ExecuteScalar();
+                    Console.WriteLine("Blue Wins for Current Matchup: " + blueWins);
                 }
-                using (SqlDataReader dataReader2 = getBlueWins.ExecuteReader())
+                catch
                 {
-                    while (dataReader2.Read())
-                    {
-                        blueWins = Convert.ToInt32(dataReader2["BlueWins"]);
-                        Console.WriteLine("Blue Wins for Current Matchup: " + blueWins);
-                    }
+                    Console.WriteLine("Error checking Red vs Blue wins.");
                 }
-            }
-            catch
-            {
-                Console.WriteLine("Error checking Red vs Blue wins.");
             }
             if (fighterCount == 2)
             {
@@ -437,12 +447,22 @@ namespace essentialSalt
                 {
                     Console.WriteLine("Blue Team: " + blueScore);
                     Console.WriteLine("Red Team: " + redScore);
+                    if (redScore - blueScore <= 3)
+                    {
+                        Console.WriteLine("Close match, lets bet underdog");
+                        return false;
+                    }
                     return true;
                 }
                 else
                 {
                     Console.WriteLine("Blue Team: " + blueScore);
                     Console.WriteLine("Red Team: " + redScore);
+                    if (blueScore - redScore <= 3)
+                    {
+                        Console.WriteLine("Close match, lets bet underdog");
+                        return true;
+                    }
                     return false;
                 }
             }
@@ -464,19 +484,29 @@ namespace essentialSalt
                 {
                     Console.WriteLine("Blue Team: " + blueScore);
                     Console.WriteLine("Red Team: " + redScore);
+                    if (redScore - blueScore <= 3)
+                    {
+                        Console.WriteLine("Close match, lets bet underdog");
+                        return false;
+                    }
                     return true;
                 }
                 else
                 {
                     Console.WriteLine("Blue Team: " + blueScore);
                     Console.WriteLine("Red Team: " + redScore);
+                    if (blueScore - redScore <= 3)
+                    {
+                        Console.WriteLine("Close match, lets bet underdog");
+                        return true;
+                    }
                     return false;
                 }
             }
             else
             {
                 redScore = (currentFighters[0].getFighterScore() + currentFighters[1].getFighterScore()) / 2;
-                redScore = (currentFighters[2].getFighterScore() + currentFighters[3].getFighterScore()) / 2;
+                blueScore = (currentFighters[2].getFighterScore() + currentFighters[3].getFighterScore()) / 2;
 
                 if (redWins > blueWins)
                 {
@@ -491,12 +521,22 @@ namespace essentialSalt
                 {
                     Console.WriteLine("Blue Team: " + blueScore);
                     Console.WriteLine("Red Team: " + redScore);
+                    if (redScore - blueScore <= 3)
+                    {
+                        Console.WriteLine("Close match, lets bet underdog");
+                        return false;
+                    }
                     return true;
                 }
                 else
                 {
                     Console.WriteLine("Blue Team: " + blueScore);
                     Console.WriteLine("Red Team: " + redScore);
+                    if (blueScore - redScore <= 3)
+                    {
+                        Console.WriteLine("Close match, lets bet underdog");
+                        return true;
+                    }
                     return false;
                 }
             }
@@ -524,9 +564,82 @@ namespace essentialSalt
                     stream.Write(data, 0, data.Length);
                 }
             }
-            catch
+            catch(Exception e)
             {
+                Console.WriteLine(e.Message);
                 Console.WriteLine("Could not place bet");
+            }
+        }
+
+        private static bool addMatch(List<fighter> currentFighters, CookieContainer cookieContainer)
+        {
+            stateJson currentState = getCurrentState(cookieContainer);
+            string RedTeam = currentState.p1name;
+            string BlueTeam = currentState.p2name;
+            SqlCommand command = new SqlCommand();
+            command.Connection = sqlCon;
+            DateTime dtNow = DateTime.Now;
+            string sqlAddMatch = null;
+            string name = null;
+            int countFighters = currentFighters.Count();
+            string sqlFindName = "SELECT Count(*) from Matches WHERE name LIKE '" + name + "';";
+
+            if (countFighters == 2)
+            {
+                name = currentFighters[0].name + currentFighters[1].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[0].palette + currentFighters[1].palette;
+                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, BlueFighter1, RedFighter1Tier, BlueFighter1Tier, RedFighter1Palette, BlueFighter1Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','0','0', '" + dtNow + "');";
+
+            }
+            else if (countFighters == 3) // 3 fighter matches are going to be realllly wonky. unless the 2 players are always on the red team then I am just damn lucky.
+            {
+                name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette;
+                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, RedFighter2, BlueFighter1, RedFighter1Tier, RedFighter2Tier, BlueFighter1Tier, RedFighter1Palette, RedFighter2Palette, BlueFighter1Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[2].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[2].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','" + currentFighters[2].palette + "','0','0', '" + dtNow + "');";
+            }
+            else
+            {
+                name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[3].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[3].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette + currentFighters[3].palette;
+                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, RedFighter2, BlueFighter1, BlueFighter2, RedFighter1Tier, RedFighter2Tier, BlueFighter1Tier, BlueFighter2Tier, RedFighter1Palette, RedFighter2Palette, BlueFighter1Palette, BlueFighter2Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[2].name + "','" + currentFighters[3].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[2].tier + "','" + currentFighters[3].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','" + currentFighters[2].palette + "','" + currentFighters[3].palette + "','0','0', '" + dtNow + "');";
+            }
+
+            using (sqlCon)
+            {
+                sqlCon.Open();
+                command.CommandText = sqlFindName;
+                if ((Int32)command.ExecuteScalar() == 0)
+                {
+                    //match doesnt exist add it in:
+                    command.CommandText = sqlAddMatch;
+                    command.ExecuteNonQuery();
+                    return false; //match is now added, it did not exist
+                }
+                else
+                {
+                    //match exists do nothing we will watch for a win/loss and update accordingly
+                    return true;
+                }
+            }
+        }
+
+        private static void updateWin(string TeamWins, string name)
+        {
+            //TeamWins MUST BE RedWins or BlueWins, to correspond with column titles in the db
+            sqlCon.ConnectionString = sqlConnectString;
+            SqlCommand command = new SqlCommand();
+            command.Connection = sqlCon;
+            string updateTeamWins = "UPDATE Matches set " + TeamWins + " += 1 WHERE name = '" + name + "';";
+            command.CommandText = updateTeamWins;
+            try
+            {
+                using (sqlCon)
+                {
+                    sqlCon.Open();
+                    command.ExecuteNonQuery();
+                    Console.WriteLine(TeamWins + " updated");
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
             }
         }
 
