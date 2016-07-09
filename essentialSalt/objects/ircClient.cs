@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace essentialSalt.objects
 {
@@ -43,7 +42,9 @@ namespace essentialSalt.objects
             string message = inputStream.ReadLine();
             if (message == "PING :tmi.twitch.tv")
             {
+                Console.WriteLine("PING RECEIVED");
                 sendIrcMessage("PONG :tmi.twitch.tv");
+                Console.WriteLine("PONG SENT");
             }
             return message;
         }

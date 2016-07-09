@@ -5,7 +5,6 @@ using System.Net;
 using System.Text;
 using System.IO;
 using System.Data.SqlClient;
-using System.Threading.Tasks;
 using essentialSalt.jsonData;
 using Newtonsoft.Json;
 using System.Threading;
@@ -13,6 +12,7 @@ using HtmlAgilityPack;
 using System.Text.RegularExpressions;
 using essentialSalt.objects;
 using essentialSalt.enums;
+using MySql.Data.MySqlClient;
 
 namespace essentialSalt
 {
@@ -22,8 +22,10 @@ namespace essentialSalt
         public static string cookieText;
         public static ircClient irc;
         public static string waifu = "waifu4u!waifu4u@waifu4u.tmi.twitch.tv";
-        public static SqlConnection sqlCon = new SqlConnection();
+        //public static SqlConnection sqlCon = new SqlConnection();
+        public static MySql.Data.MySqlClient.MySqlConnection mySqlCon = new MySql.Data.MySqlClient.MySqlConnection();
         public static string sqlConnectString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename ='" + AppDomain.CurrentDomain.BaseDirectory + "essentialSaltStorage.mdf'; Integrated Security = True";
+        public static string mySqlConnectString = "server=NOT;uid=FOR;pwd=YOU;database=!!!";
         public static int wins = 0;
         public static int losses = 0;
         public static bool isRedTeam;
@@ -31,8 +33,11 @@ namespace essentialSalt
 
         static void Main(string[] args)
         {
+            startOver:
             string oauth = File.ReadAllText("oauth.txt");
-            sqlCon.ConnectionString = sqlConnectString;
+            cookieText = File.ReadAllText("cookie.txt");
+            //sqlCon.ConnectionString = sqlConnectString;
+            mySqlCon.ConnectionString = mySqlConnectString;
             matchstatsJson currentMatch = null;
 
             try
@@ -40,8 +45,7 @@ namespace essentialSalt
                 //test connecting to chat
                 irc = new ircClient("irc.chat.twitch.tv", 6667, "fapvamp", oauth);
                 irc.joinRoom("saltybet");
-                //test if cookie is good, if cookie is not in place, or expired then currentMatch.p1Name will be null and error.
-                cookieText = File.ReadAllText("cookie.txt");
+                //test if cookie is good, if cookie is not in place, or expired then currentMatch.p1Name will be null and error.                
                 currentMatch = getCurrentMatchStats(makeCookieContainer());
                 string s = currentMatch.p1name;
             }
@@ -57,15 +61,25 @@ namespace essentialSalt
             }
             while (true)
             {
-                //monitor chat for when we should start betting or listen for results of current match
-                string message = irc.readMessage();
-                if (message.Contains(waifu) && (message.Contains("Bets are OPEN") || message.Contains("Bets are locked")))
+                try
                 {
-                    //bets are open or closed high importance
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine(message);
-                    Console.ResetColor();
-                    buildCurrentMatch(makeCookieContainer());
+                    //monitor chat for when we should start betting or listen for results of current match
+                    string message = irc.readMessage();
+                    if (message.Contains(waifu) && (message.Contains("Bets are OPEN") || message.Contains("Bets are locked")))
+                    {
+                        //bets are open or closed high importance
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine(message);
+                        Console.ResetColor();
+                        buildCurrentMatch(makeCookieContainer());
+                    }
+                }
+                catch(Exception e)
+                {
+                    //something went wrong, start all over
+                    //rewrite to remove goto
+                    Console.WriteLine(e);
+                    goto startOver;
                 }
             }
         }
@@ -109,6 +123,9 @@ namespace essentialSalt
                         matchStats = StreamReader.ReadToEnd();
                     }
                 }
+                response.Close();
+                response.Dispose();
+                request.Abort();
             }
             catch
             {
@@ -119,14 +136,13 @@ namespace essentialSalt
 
         }
 
-        private static stateJson getCurrentState(CookieContainer cookieContainer)
+        private static stateJson getCurrentState()
         {
             stateJson stateJson = null;
             string currentState = null;
             try
             {
                 var request = (HttpWebRequest)WebRequest.Create("http://www.saltybet.com/state.json");
-                request.CookieContainer = cookieContainer;
                 var response = (HttpWebResponse)request.GetResponse();
                 using (var responseStream = response.GetResponseStream())
                 {
@@ -136,10 +152,15 @@ namespace essentialSalt
                         var StreamReader = new StreamReader(responseStream, encoding);
                         currentState = StreamReader.ReadToEnd();
                     }
+                    response.Close();
+                    response.Dispose();
+                    request.Abort();
                 }
+                
             }
-            catch
+            catch(Exception e)
             {
+                Console.WriteLine(e);
                 Console.WriteLine("cannot retrieve current state");
             }
 
@@ -196,7 +217,11 @@ namespace essentialSalt
                     {
                         Console.WriteLine("how the fuck does regex even work.");
                     }
+                    bankPageResp.Close();
+                    bankPageResp.Dispose();
+                    getBankPage.Abort();
                 }
+                
             }
             catch
             {
@@ -213,9 +238,10 @@ namespace essentialSalt
         //add fight to db if it doesn't exist, then wait for win or loss message, update who won.
         //if fight does exist, offer advice on who to bet on, wait for win/loss, update who won.
         gameCrash:
-            sqlCon.ConnectionString = sqlConnectString;
-            stateJson currentState = getCurrentState(cookieContainer);
-            matchstatsJson currentMatch = getCurrentMatchStats(cookieContainer);
+            //sqlCon.ConnectionString = sqlConnectString;
+            mySqlCon.ConnectionString = mySqlConnectString;
+            stateJson currentState = getCurrentState();
+            matchstatsJson currentMatch = getCurrentMatchStats(makeCookieContainer());
             List<fighter> currentFighters = buildFighters(currentMatch);
             string RedTeam = currentState.p1name;
             string BlueTeam = currentState.p2name;
@@ -229,27 +255,30 @@ namespace essentialSalt
             catch(Exception e)
             {
                 Console.WriteLine("Cannot set bet modifier");
-                Console.WriteLine(e.Message);
+                Console.WriteLine(e);
             }
 
 
             if (countFighters == 2)
             {
                 name = currentFighters[0].name + currentFighters[1].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[0].palette + currentFighters[1].palette;
+                name = name.Replace("'", "");
             }
             else if (countFighters == 3) // 3 fighter matches are going to be realllly wonky. unless the 2 players are always on the red team then I am just damn lucky.
             {
                 name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette;
+                name = name.Replace("'", "");
             }
             else
             {
                 name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[3].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[3].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette + currentFighters[3].palette;
+                name = name.Replace("'", "");
             }
 
             try
             {
                 bool fighting = true;
-                if (!addMatch(currentFighters, cookieContainer))
+                if (!addMatch(currentFighters, makeCookieContainer()))
                 {
                     //we can't find this match in our db add it to the db.
                     //addmatch
@@ -329,7 +358,7 @@ namespace essentialSalt
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
+                Console.WriteLine(e);
                 //Console.WriteLine("Could not Connect to DB");
             }
 
@@ -431,18 +460,20 @@ namespace essentialSalt
 
         private static bool isRedBestBet(List<fighter> currentFighters, string matchName)
         {
-            sqlCon.ConnectionString = sqlConnectString;
+            //sqlCon.ConnectionString = sqlConnectString;
+            mySqlCon.ConnectionString = mySqlConnectString;
             int? redWins = null;
             int? blueWins = null;
             int fighterCount = currentFighters.Count();
             double redScore = 0;
             double blueScore = 0;
-            SqlCommand getRedWins = new SqlCommand("select RedWins from Matches where name like '" + matchName + "';", sqlCon);
-            SqlCommand getBlueWins = new SqlCommand("select BlueWins from Matches where name like '" + matchName + "';", sqlCon);
 
-            using (sqlCon)
+            MySqlCommand getRedWins = new MySqlCommand("select RedWins from Matches where name like '" + matchName + "';", mySqlCon);
+            MySqlCommand getBlueWins = new MySqlCommand("select BlueWins from Matches where name like '" + matchName + "';", mySqlCon);
+
+            using (mySqlCon)
             {
-                sqlCon.Open();
+                mySqlCon.Open();
                 try
                 {
                     redWins = (Int32)getRedWins.ExecuteScalar();
@@ -581,6 +612,10 @@ namespace essentialSalt
                 request.CookieContainer = cookieContainer;
                 var postData = "selectedplayer=player" + (isRedBestBet(currentFighters, matchName) ? 1 : 2);
                 //force 5% bet for testing todo: add betting logic based on current mode
+                if(balance <= 50000)
+                {
+                    betModifier = 1;
+                }
                 Console.WriteLine("Bet placed: $" +(int)(balance * betModifier));
                 postData += "&wager=" + (int)(balance * betModifier);
                 var data = Encoding.ASCII.GetBytes(postData);
@@ -592,22 +627,25 @@ namespace essentialSalt
                 using (var stream = request.GetRequestStream())
                 {
                     stream.Write(data, 0, data.Length);
+                    stream.Close();
+                    stream.Dispose();
                 }
+                request.Abort();
             }
             catch(Exception e)
             {
-                Console.WriteLine(e.Message);
+                Console.WriteLine(e);
                 Console.WriteLine("Could not place bet");
             }
         }
 
         private static bool addMatch(List<fighter> currentFighters, CookieContainer cookieContainer)
         {
-            stateJson currentState = getCurrentState(cookieContainer);
+            stateJson currentState = getCurrentState();
             string RedTeam = currentState.p1name;
             string BlueTeam = currentState.p2name;
-            SqlCommand command = new SqlCommand();
-            command.Connection = sqlCon;
+            MySqlCommand command = new MySqlCommand();
+            command.Connection = mySqlCon;
             DateTime dtNow = DateTime.Now;
             string sqlAddMatch = null;
             string name = null;
@@ -631,11 +669,11 @@ namespace essentialSalt
                 sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, RedFighter2, BlueFighter1, BlueFighter2, RedFighter1Tier, RedFighter2Tier, BlueFighter1Tier, BlueFighter2Tier, RedFighter1Palette, RedFighter2Palette, BlueFighter1Palette, BlueFighter2Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[2].name + "','" + currentFighters[3].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[2].tier + "','" + currentFighters[3].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','" + currentFighters[2].palette + "','" + currentFighters[3].palette + "','0','0', '" + dtNow + "');";
             }
 
-            using (sqlCon)
+            using (mySqlCon)
             {
-                sqlCon.Open();
+                mySqlCon.Open();
                 command.CommandText = sqlFindName;
-                if ((Int32)command.ExecuteScalar() == 0)
+                if (Convert.ToInt32(command.ExecuteScalar()) == 0)
                 {
                     //match doesnt exist add it in:
                     command.CommandText = sqlAddMatch;
@@ -653,23 +691,23 @@ namespace essentialSalt
         private static void updateWin(string TeamWins, string name)
         {
             //TeamWins MUST BE RedWins or BlueWins, to correspond with column titles in the db
-            sqlCon.ConnectionString = sqlConnectString;
-            SqlCommand command = new SqlCommand();
-            command.Connection = sqlCon;
-            string updateTeamWins = "UPDATE Matches set " + TeamWins + " += 1 WHERE name = '" + name + "';";
+            mySqlCon.ConnectionString = mySqlConnectString;
+            MySqlCommand command = new MySqlCommand();
+            command.Connection = mySqlCon;
+            string updateTeamWins = "UPDATE Matches set " + TeamWins + " = " + TeamWins + " + 1 WHERE name = '" + name + "';";
             command.CommandText = updateTeamWins;
             try
             {
-                using (sqlCon)
+                using (mySqlCon)
                 {
-                    sqlCon.Open();
+                    mySqlCon.Open();
                     command.ExecuteNonQuery();
                     Console.WriteLine(TeamWins + " updated");
                 }
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
+                Console.WriteLine(e);
             }
         }
 
