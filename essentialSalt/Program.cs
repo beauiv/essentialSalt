@@ -25,7 +25,7 @@ namespace essentialSalt
         //public static SqlConnection sqlCon = new SqlConnection();
         public static MySql.Data.MySqlClient.MySqlConnection mySqlCon = new MySql.Data.MySqlClient.MySqlConnection();
         public static string sqlConnectString = "Data Source = (LocalDB)\\MSSQLLocalDB; AttachDbFilename ='" + AppDomain.CurrentDomain.BaseDirectory + "essentialSaltStorage.mdf'; Integrated Security = True";
-        public static string mySqlConnectString = "server=NOT;uid=FOR;pwd=YOU;database=!!!";
+        public static string mySqlConnectString = "";
         public static int wins = 0;
         public static int losses = 0;
         public static bool isRedTeam;
@@ -33,7 +33,7 @@ namespace essentialSalt
 
         static void Main(string[] args)
         {
-            startOver:
+        startOver:
             string oauth = File.ReadAllText("oauth.txt");
             cookieText = File.ReadAllText("cookie.txt");
             //sqlCon.ConnectionString = sqlConnectString;
@@ -74,7 +74,7 @@ namespace essentialSalt
                         buildCurrentMatch(makeCookieContainer());
                     }
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     //something went wrong, start all over
                     //rewrite to remove goto
@@ -156,9 +156,9 @@ namespace essentialSalt
                     response.Dispose();
                     request.Abort();
                 }
-                
+
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Console.WriteLine(e);
                 Console.WriteLine("cannot retrieve current state");
@@ -221,7 +221,7 @@ namespace essentialSalt
                     bankPageResp.Dispose();
                     getBankPage.Abort();
                 }
-                
+
             }
             catch
             {
@@ -232,13 +232,24 @@ namespace essentialSalt
 
         }
 
+        public static bool isRedBestBet(double redChanceToWin)
+        {
+            if (redChanceToWin > 50)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
         private static void buildCurrentMatch(CookieContainer cookieContainer)
         {
         //happens when waifu says bets are open
         //add fight to db if it doesn't exist, then wait for win or loss message, update who won.
         //if fight does exist, offer advice on who to bet on, wait for win/loss, update who won.
         gameCrash:
-            //sqlCon.ConnectionString = sqlConnectString;
             mySqlCon.ConnectionString = mySqlConnectString;
             stateJson currentState = getCurrentState();
             matchstatsJson currentMatch = getCurrentMatchStats(makeCookieContainer());
@@ -246,121 +257,68 @@ namespace essentialSalt
             string RedTeam = currentState.p1name;
             string BlueTeam = currentState.p2name;
             int countFighters = currentFighters.Count;
-            string name = null;
+            double redChanceToWin = 0;
+            mySqlCon.Open();
+
             try
             {
                 //figure out how to bet by getting bet mode
                 setBetModifier(setBetMode(currentState));
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Console.WriteLine("Cannot set bet modifier");
                 Console.WriteLine(e);
             }
 
-
-            if (countFighters == 2)
-            {
-                name = currentFighters[0].name + currentFighters[1].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[0].palette + currentFighters[1].palette;
-                name = name.Replace("'", "");
-            }
-            else if (countFighters == 3) // 3 fighter matches are going to be realllly wonky. unless the 2 players are always on the red team then I am just damn lucky.
-            {
-                name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette;
-                name = name.Replace("'", "");
-            }
-            else
-            {
-                name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[3].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[3].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette + currentFighters[3].palette;
-                name = name.Replace("'", "");
-            }
+            match newMatch = new match(currentFighters);
+            redChanceToWin = newMatch.getRedChanceToWin(mySqlCon);
+            Console.WriteLine("red chance to win: " + redChanceToWin);
+            
 
             try
             {
                 bool fighting = true;
-                if (!addMatch(currentFighters, makeCookieContainer()))
+                makeBet(cookieContainer, currentFighters, getBalance(cookieContainer), redChanceToWin);
+                Console.WriteLine("Waiting for winner");
+                while (fighting)
                 {
-                    //we can't find this match in our db add it to the db.
-                    //addmatch
-                    Console.WriteLine("added new match data");
-                    Console.WriteLine("Waiting for winner");
-                    makeBet(cookieContainer, currentFighters, getBalance(cookieContainer), name);
-                    while (fighting)
+                    string message = irc.readMessage();
+                    if (message.Contains(waifu))
                     {
-                        string message = irc.readMessage();
-                        if (message.Contains(waifu))
+                        if (message.Contains(RedTeam) && message.Contains("wins"))
                         {
-                            if (message.Contains(RedTeam) && message.Contains("wins"))
-                            {
-                                Console.WriteLine(message);
-                                updateWin("RedWins", name);
-                                Console.WriteLine("red won");
-                                redWinInc();
-                                Console.WriteLine("W/L: " + wins + "/" + losses);
-                                fighting = false;
-                            }
-                            else if (message.Contains(BlueTeam) && message.Contains("wins"))
-                            {
-                                Console.WriteLine(message);
-                                updateWin("BlueWins", name);
-                                Console.WriteLine("blue won");
-                                blueWinInc();
-                                Console.WriteLine("W/L: " + wins + "/" + losses);
-                                fighting = false;
-                            }
-                            else if (message.Contains("Bets are OPEN"))
-                            {
-                                Console.WriteLine(message);
-                                Console.WriteLine("We missed the winner message or the game possibly crashed, start over");
-                                fighting = false;
-                                goto gameCrash;
-                            }
+                            Console.WriteLine(message);
+                            updateELOs(newMatch, redChanceToWin, true);
+                            isRedTeam = true;
+                            Console.WriteLine("red won");
+                            fighting = false;
+                        }
+                        else if (message.Contains(BlueTeam) && message.Contains("wins"))
+                        {
+                            Console.WriteLine(message);
+                            updateELOs(newMatch, redChanceToWin, false);
+                            isRedTeam = false;
+                            Console.WriteLine("blue won");
+                            fighting = false;
+                        }
+                        else if (message.Contains("Bets are OPEN"))
+                        {
+                            Console.WriteLine(message);
+                            Console.WriteLine("We missed the winner message or the game possibly crashed, start over");
+                            fighting = false;
+                            goto gameCrash;
                         }
                     }
                 }
-                //match already exists wait for win or lose update
-                else
-                {
-                    while (fighting)
-                    {
-                        string message = irc.readMessage();
 
-                        if (message.Contains(waifu))
-                        {
-                            if (message.Contains(RedTeam) && message.Contains("wins"))
-                            {
-                                Console.WriteLine(message);
-                                updateWin("RedWins", name);
-                                Console.WriteLine("red won");
-                                redWinInc();
-                                Console.WriteLine("W/L: " + wins + "/" + losses);
-                                fighting = false;
-                            }
-                            else if (message.Contains(BlueTeam) && message.Contains("wins"))
-                            {
-                                Console.WriteLine(message);
-                                updateWin("BlueWins", name);
-                                Console.WriteLine("blue won");
-                                blueWinInc();
-                                Console.WriteLine("W/L: " + wins + "/" + losses);
-                                fighting = false;
-                            }
-                            else if (message.Contains("Bets are OPEN"))
-                            {
-                                Console.WriteLine(message);
-                                Console.WriteLine("We missed the winner message or the game possibly crashed, start over");
-                                fighting = false;
-                                goto gameCrash;
-                            }
-                        }
-                    }
-                }
             }
             catch (Exception e)
             {
                 Console.WriteLine(e);
                 //Console.WriteLine("Could not Connect to DB");
             }
+            mySqlCon.Close();
 
         }
 
@@ -444,11 +402,11 @@ namespace essentialSalt
 
         private static void setBetModifier(betMode mode)
         {
-            if(mode == betMode.Tournament)
+            if (mode == betMode.Tournament)
             {
                 betModifier = 1;
             }
-            else if(mode == betMode.Matchmaking)
+            else if (mode == betMode.Matchmaking)
             {
                 betModifier = 0.20;
             }
@@ -458,165 +416,19 @@ namespace essentialSalt
             }
         }
 
-        private static bool isRedBestBet(List<fighter> currentFighters, string matchName)
-        {
-            //sqlCon.ConnectionString = sqlConnectString;
-            mySqlCon.ConnectionString = mySqlConnectString;
-            int? redWins = null;
-            int? blueWins = null;
-            int fighterCount = currentFighters.Count();
-            double redScore = 0;
-            double blueScore = 0;
-
-            MySqlCommand getRedWins = new MySqlCommand("select RedWins from Matches where name like '" + matchName + "';", mySqlCon);
-            MySqlCommand getBlueWins = new MySqlCommand("select BlueWins from Matches where name like '" + matchName + "';", mySqlCon);
-
-            using (mySqlCon)
-            {
-                mySqlCon.Open();
-                try
-                {
-                    redWins = (Int32)getRedWins.ExecuteScalar();
-                    Console.WriteLine("Red Wins for Current Matchup: " + redWins);
-                    blueWins = (Int32)getBlueWins.ExecuteScalar();
-                    Console.WriteLine("Blue Wins for Current Matchup: " + blueWins);
-                }
-                catch
-                {
-                    Console.WriteLine("Error checking Red vs Blue wins.");
-                }
-            }
-            if (fighterCount == 2)
-            {
-                redScore = currentFighters[0].getFighterScore();
-                blueScore = currentFighters[1].getFighterScore();
-
-                if (redWins > blueWins)
-                {
-                    redScore += 15;
-                }
-                else if (blueWins > redWins)
-                {
-                    blueScore += 15;
-                }
-
-                if (redScore > blueScore)
-                {
-                    Console.WriteLine("Blue Team: " + blueScore);
-                    Console.WriteLine("Red Team: " + redScore);
-                    if (redScore - blueScore <= 3)
-                    {
-                        Console.WriteLine("Close match, lets bet underdog");
-                        return isRedTeam = false;
-                    }
-                    return isRedTeam = true;
-                }
-                else
-                {
-                    Console.WriteLine("Blue Team: " + blueScore);
-                    Console.WriteLine("Red Team: " + redScore);
-                    if (blueScore - redScore <= 3)
-                    {
-                        Console.WriteLine("Close match, lets bet underdog");
-                        return isRedTeam = true;
-                    }
-                    return isRedTeam = false;
-                }
-            }
-            else if (fighterCount == 3)
-            {
-                redScore = (currentFighters[0].getFighterScore() + currentFighters[1].getFighterScore()) / 2;
-                blueScore = currentFighters[2].getFighterScore();
-
-                if (redWins > blueWins)
-                {
-                    redScore += 15;
-                }
-                else if (blueWins > redWins)
-                {
-                    blueScore += 15;
-                }
-
-                if (redScore > blueScore)
-                {
-                    Console.WriteLine("Blue Team: " + blueScore);
-                    Console.WriteLine("Red Team: " + redScore);
-                    if (redScore - blueScore <= 3)
-                    {
-                        Console.WriteLine("Close match, lets bet underdog");
-
-                        return isRedTeam = false;
-                    }
-
-                    return isRedTeam = true;
-                }
-                else
-                {
-                    Console.WriteLine("Blue Team: " + blueScore);
-                    Console.WriteLine("Red Team: " + redScore);
-                    if (blueScore - redScore <= 3)
-                    {
-                        Console.WriteLine("Close match, lets bet underdog");
-
-                        return isRedTeam = true;
-                    }
-
-                    return isRedTeam = false;
-                }
-            }
-            else
-            {
-                redScore = (currentFighters[0].getFighterScore() + currentFighters[1].getFighterScore()) / 2;
-                blueScore = (currentFighters[2].getFighterScore() + currentFighters[3].getFighterScore()) / 2;
-
-                if (redWins > blueWins)
-                {
-                    redScore += 15;
-                }
-                else if (blueWins > redWins)
-                {
-                    blueScore += 15;
-                }
-
-                if (redScore > blueScore)
-                {
-                    Console.WriteLine("Blue Team: " + blueScore);
-                    Console.WriteLine("Red Team: " + redScore);
-                    if (redScore - blueScore <= 3)
-                    {
-                        Console.WriteLine("Close match, lets bet underdog");
-                        return isRedTeam = false;
-                    }
-                    return isRedTeam = true;
-                }
-                else
-                {
-                    Console.WriteLine("Blue Team: " + blueScore);
-                    Console.WriteLine("Red Team: " + redScore);
-                    if (blueScore - redScore <= 3)
-                    {
-                        Console.WriteLine("Close match, lets bet underdog");
-                        return isRedTeam = true;
-                    }
-                    return isRedTeam = false;
-                }
-            }
-
-        }
-
-        private static void makeBet(CookieContainer cookieContainer, List<fighter> currentFighters, int balance, string matchName)
+        private static void makeBet(CookieContainer cookieContainer, List<fighter> currentFighters, int balance, double redChanceToWin)
         {
             try
             {
                 var request = (HttpWebRequest)WebRequest.Create("http://www.saltybet.com/ajax_place_bet.php");
                 request.CookieContainer = cookieContainer;
-                var postData = "selectedplayer=player" + (isRedBestBet(currentFighters, matchName) ? 1 : 2);
+                var postData = "selectedplayer=player" + (isRedBestBet(redChanceToWin) ? 1 : 2);
                 //force 5% bet for testing todo: add betting logic based on current mode
-                if(balance <= 50000)
+                if (balance <= 50000)
                 {
                     betModifier = 1;
                 }
-                Console.WriteLine("Bet placed: $" +(int)(balance * betModifier));
+                Console.WriteLine("Bet placed: $" + (int)(balance * betModifier));
                 postData += "&wager=" + (int)(balance * betModifier);
                 var data = Encoding.ASCII.GetBytes(postData);
 
@@ -632,82 +444,10 @@ namespace essentialSalt
                 }
                 request.Abort();
             }
-            catch(Exception e)
-            {
-                Console.WriteLine(e);
-                Console.WriteLine("Could not place bet");
-            }
-        }
-
-        private static bool addMatch(List<fighter> currentFighters, CookieContainer cookieContainer)
-        {
-            stateJson currentState = getCurrentState();
-            string RedTeam = currentState.p1name;
-            string BlueTeam = currentState.p2name;
-            MySqlCommand command = new MySqlCommand();
-            command.Connection = mySqlCon;
-            DateTime dtNow = DateTime.Now;
-            string sqlAddMatch = null;
-            string name = null;
-            int countFighters = currentFighters.Count();
-            string sqlFindName = "SELECT Count(*) from Matches WHERE name LIKE '" + name + "';";
-
-            if (countFighters == 2)
-            {
-                name = currentFighters[0].name + currentFighters[1].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[0].palette + currentFighters[1].palette;
-                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, BlueFighter1, RedFighter1Tier, BlueFighter1Tier, RedFighter1Palette, BlueFighter1Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','0','0', '" + dtNow + "');";
-
-            }
-            else if (countFighters == 3) // 3 fighter matches are going to be realllly wonky. unless the 2 players are always on the red team then I am just damn lucky.
-            {
-                name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette;
-                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, RedFighter2, BlueFighter1, RedFighter1Tier, RedFighter2Tier, BlueFighter1Tier, RedFighter1Palette, RedFighter2Palette, BlueFighter1Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[2].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[2].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','" + currentFighters[2].palette + "','0','0', '" + dtNow + "');";
-            }
-            else
-            {
-                name = currentFighters[0].name + currentFighters[1].name + currentFighters[2].name + currentFighters[3].name + currentFighters[0].tier + currentFighters[1].tier + currentFighters[2].tier + currentFighters[3].tier + currentFighters[0].palette + currentFighters[1].palette + currentFighters[2].palette + currentFighters[3].palette;
-                sqlAddMatch = "INSERT INTO Matches (name, RedTeam, BlueTeam, RedFighter1, RedFighter2, BlueFighter1, BlueFighter2, RedFighter1Tier, RedFighter2Tier, BlueFighter1Tier, BlueFighter2Tier, RedFighter1Palette, RedFighter2Palette, BlueFighter1Palette, BlueFighter2Palette, RedWins, BlueWins, lastUpdated) VALUES ('" + name + "', '" + RedTeam + "', '" + BlueTeam + "','" + currentFighters[0].name + "','" + currentFighters[1].name + "','" + currentFighters[2].name + "','" + currentFighters[3].name + "','" + currentFighters[0].tier + "','" + currentFighters[1].tier + "','" + currentFighters[2].tier + "','" + currentFighters[3].tier + "','" + currentFighters[0].palette + "','" + currentFighters[1].palette + "','" + currentFighters[2].palette + "','" + currentFighters[3].palette + "','0','0', '" + dtNow + "');";
-            }
-
-            using (mySqlCon)
-            {
-                mySqlCon.Open();
-                command.CommandText = sqlFindName;
-                if (Convert.ToInt32(command.ExecuteScalar()) == 0)
-                {
-                    //match doesnt exist add it in:
-                    command.CommandText = sqlAddMatch;
-                    command.ExecuteNonQuery();
-                    return false; //match is now added, it did not exist
-                }
-                else
-                {
-                    //match exists do nothing we will watch for a win/loss and update accordingly
-                    return true;
-                }
-            }
-        }
-
-        private static void updateWin(string TeamWins, string name)
-        {
-            //TeamWins MUST BE RedWins or BlueWins, to correspond with column titles in the db
-            mySqlCon.ConnectionString = mySqlConnectString;
-            MySqlCommand command = new MySqlCommand();
-            command.Connection = mySqlCon;
-            string updateTeamWins = "UPDATE Matches set " + TeamWins + " = " + TeamWins + " + 1 WHERE name = '" + name + "';";
-            command.CommandText = updateTeamWins;
-            try
-            {
-                using (mySqlCon)
-                {
-                    mySqlCon.Open();
-                    command.ExecuteNonQuery();
-                    Console.WriteLine(TeamWins + " updated");
-                }
-            }
             catch (Exception e)
             {
                 Console.WriteLine(e);
+                Console.WriteLine("Could not place bet");
             }
         }
 
@@ -732,6 +472,59 @@ namespace essentialSalt
             else
             {
                 losses++;
+            }
+        }
+
+        private static void updateELOs(match currentMatch, double redChancetoWin, bool didRedWin)
+        {
+            double blueELODelta = 0;
+            double redELODelta = 0;
+
+            if (redChancetoWin >= 50 && didRedWin) //blue was expected to lose, and did lose
+            {
+                blueELODelta = 32 * (0 - ((100 - redChancetoWin) / 100));
+                redELODelta = 32 * (1 - (redChancetoWin / 100));
+            }
+            else if (redChancetoWin >= 50 && !didRedWin) // blue was expected to lose, but won
+            {
+                redELODelta = 32 * (0 - (redChancetoWin / 100));
+                blueELODelta = 32 * (1 - ((100 - redChancetoWin) / 100));
+            }
+            else if (redChancetoWin <= 50 && didRedWin) //red was expected to lose, but won
+            {
+                redELODelta = 32 * (1 - ((100 - redChancetoWin) / 100));
+                blueELODelta = 32 * (0 - (redChancetoWin / 100));
+            }
+            else if (redChancetoWin <= 50 && !didRedWin) // red was expected to lose, and did lose
+            {
+                redELODelta = 32 * (0 - (redChancetoWin / 100));
+                blueELODelta = 32 * (1 - ((100 - redChancetoWin) / 100));
+            }
+
+            if (currentMatch.blueTeam.Count() > 1)
+            {
+                currentMatch.blueTeam[0].eloDelta = blueELODelta;
+                currentMatch.blueTeam[1].eloDelta = blueELODelta;
+                currentMatch.blueTeam[0].updateELO(mySqlCon);
+                currentMatch.blueTeam[1].updateELO(mySqlCon);
+            }
+            else
+            {
+                currentMatch.blueTeam[0].eloDelta = blueELODelta;
+                currentMatch.blueTeam[0].updateELO(mySqlCon);
+            }
+
+            if (currentMatch.redTeam.Count() > 1)
+            {
+                currentMatch.redTeam[0].eloDelta = redELODelta;
+                currentMatch.redTeam[1].eloDelta = redELODelta;
+                currentMatch.redTeam[0].updateELO(mySqlCon);
+                currentMatch.redTeam[1].updateELO(mySqlCon);
+            }
+            else
+            {
+                currentMatch.redTeam[0].eloDelta = redELODelta;
+                currentMatch.redTeam[0].updateELO(mySqlCon);
             }
         }
 

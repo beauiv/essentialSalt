@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿using MySql.Data.MySqlClient;
+using System;
 
 namespace essentialSalt.objects
 {
@@ -14,6 +12,7 @@ namespace essentialSalt.objects
         public int life { get; set; }
         public string author { get; set; }
         public int palette { get; set; }
+        public double eloDelta { get; set; }
 
 
         public fighter(string n, int tM, int wR, string t, int l, string a, int p)
@@ -27,120 +26,96 @@ namespace essentialSalt.objects
             this.palette = p;
         }
 
-        public double getFighterScore()
+        public double getFighterScore(MySqlConnection mySqlCon)
         {
+            string cleanName = this.name.Replace("'", "");
             double score = 0;
-            
-            //total match points
-            if(this.totalMatches >= 250)
+            MySqlCommand findFighter = new MySqlCommand("select elo from saltyelo where fighterName = '" + cleanName + "' and tier = '" + this.tier + "';", mySqlCon);
+            try
             {
-                score += 15;
+                score = (double)findFighter.ExecuteScalar();
             }
-            else if(this.totalMatches >= 150)
+            catch
             {
-                score += 12;
-            }
-            else if(this.totalMatches >= 100)
-            {
-                score += 10;
-            }
-            else if(this.totalMatches >= 75)
-            {
-                score += 7;
-            }
-            else if(this.totalMatches >= 50)
-            {
-                score += 5;
-            }
-            else
-            {
-                score += 3;
-            }
-            
-            // winrate points
-            if(this.winRate >= 90)
-            {
-                score += 30;
-            }
-            else if(this.winRate>=80)
-            {
-                score += 25;
-            }
-            else if(this.winRate>=70)
-            {
-                score += 20;
-            }
-            else if(this.winRate >= 60)
-            {
-                score += 15;
-            }
-            else if(this.winRate>= 50)
-            {
-                score += 10;
-            }
-            else
-            {
-                score += 5;
-            }
-           
-            //tier points
-            if(this.tier.Contains("X"))
-            {
-                score += 17; //x tier placement is done by hand, they are obviously above the 'standard grading system' make their points absurd
-            }
-            else if (this.tier.Contains("S"))
-            {
-                score += 15;
-            }
-            else if(this.tier.Contains("A"))
-            {
-                score += 12;
-            }
-            else if(this.tier.Contains("B"))
-            {
-                score += 9;
-            }
-            else if(this.tier.Contains("P"))
-            {
-                score += 5;
-            }
-            else if(this.tier.Contains("NEW"))
-            {
-                score += 0;
-            }
-            
-            //life points, life is usually around 1000, for our points we'll consider 1000 the standard and give more or less points based on life / 100. eg: 2000 life = 20 points, 1000 life = 10 points
-            score += (this.life / 100);
-
-            //palette points
-            if (this.palette >= 11)
-            {
-                score += 30;
-            }
-            else if(this.palette >= 9)
-            {
-                score += 20;
-            }
-            else if(this.palette >= 5)
-            {
-                score += 15;
-            }
-            else if(this.palette >= 2)
-            {
-                score += 13;
-            }
-            else
-            {
-                score += 12;
+                score = 0;
             }
 
-            return score;
+            //changing to an ELO system for better tracking and comparison
+            //simple ELO formula
+            // ewRating = oldRating + pointsToBeEarned * ( 1 - expectedWinPerc(value of 0 - 1) 
+
+            if (score != 0)
+            {
+                return score;
+            }
+            else  //no elo can be found, make a new one
+            {
+                if (this.tier.Contains("X"))
+                {
+                    score += 1000;
+                }
+                else if (this.tier.Contains("S"))
+                {
+                    score += 800;
+                }
+                else if (this.tier.Contains("A"))
+                {
+                    score += 600;
+                }
+                else if (this.tier.Contains("B"))
+                {
+                    score += 400;
+                }
+                else if (this.tier.Contains("P"))
+                {
+                    score += 200;
+                }
+                else if (this.tier.Contains("NEW"))
+                {
+                    score += 100;
+                }
+                //palette points, palette modifier, since 12p is usually very overpowered give it a boost,we are tracking each palette ELO individually
+                if (this.palette == 12)
+                {
+                    score += 50;
+                }
+                score += this.winRate; //initial sorting always favors fighter with higher win rate.
+                MySqlCommand addNewFighter = new MySqlCommand("insert into saltyelo (fighterName,elo,tier,palette) values ('" + cleanName + "','" + score + "','" + this.tier + "','" + this.palette + "');", mySqlCon);
+                addNewFighter.ExecuteNonQuery();
+                return score;
+            }
+
 
         }
 
+        public void updateELO(MySqlConnection mySqlCon)
+        {
+            //add eloDelta to current delta and rewrite into db.
+            string cleanName = this.name.Replace("'", "");
+            MySqlCommand findFighter = new MySqlCommand("select elo from saltyelo where fighterName = '" + cleanName + "' and tier = '" + this.tier + "' and palette = '" + this.palette + "';", mySqlCon);
+            double score = 0;
+            try
+            {
+                score = (double)findFighter.ExecuteScalar();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+            if (score != 0) //make sure we could find the score
+            {
+                score += this.eloDelta;
+                MySqlCommand updateELO = new MySqlCommand("update saltyelo set elo = " + score + " where fighterName = '" + cleanName + "' and tier = '" + this.tier + "' and palette = '" + this.palette + "'; ", mySqlCon);
+                try
+                {
+                    updateELO.ExecuteNonQuery();
+                    Console.WriteLine(cleanName + " ELO updates change of " + this.eloDelta + " new ELO = " + score + ".");
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+            }
+        }
     }
-
-
-
-
 }
