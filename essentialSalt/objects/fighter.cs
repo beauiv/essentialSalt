@@ -29,8 +29,9 @@ namespace essentialSalt.objects
         public double getFighterScore(MySqlConnection mySqlCon)
         {
             string cleanName = this.name.Replace("'", "");
+            string fighterID = cleanName + this.tier + this.palette.ToString();
             double score = 0;
-            MySqlCommand findFighter = new MySqlCommand("select elo from saltyelo where fighterName = '" + cleanName + "' and tier = '" + this.tier + "';", mySqlCon);
+            MySqlCommand findFighter = new MySqlCommand("select elo from saltyelo where fighterID = '" + fighterID + "';", mySqlCon);
             try
             {
                 score = (double)findFighter.ExecuteScalar();
@@ -80,7 +81,7 @@ namespace essentialSalt.objects
                     score += 50;
                 }
                 score += this.winRate; //initial sorting always favors fighter with higher win rate.
-                MySqlCommand addNewFighter = new MySqlCommand("insert into saltyelo (fighterName,elo,tier,palette) values ('" + cleanName + "','" + score + "','" + this.tier + "','" + this.palette + "');", mySqlCon);
+                MySqlCommand addNewFighter = new MySqlCommand("insert into saltyelo (fighterName,fighterID,elo,tier,palette) values ('" + cleanName + "','" + fighterID + "','" + score + "','" + this.tier + "','" + this.palette + "');", mySqlCon);
                 addNewFighter.ExecuteNonQuery();
                 return score;
             }
@@ -92,7 +93,8 @@ namespace essentialSalt.objects
         {
             //add eloDelta to current delta and rewrite into db.
             string cleanName = this.name.Replace("'", "");
-            MySqlCommand findFighter = new MySqlCommand("select elo from saltyelo where fighterName = '" + cleanName + "' and tier = '" + this.tier + "' and palette = '" + this.palette + "';", mySqlCon);
+            string fighterID = cleanName + this.tier + this.palette.ToString();
+            MySqlCommand findFighter = new MySqlCommand("select elo from saltyelo where fighterID = '" + fighterID + "';", mySqlCon);
             double score = 0;
             try
             {
@@ -105,7 +107,7 @@ namespace essentialSalt.objects
             if (score != 0) //make sure we could find the score
             {
                 score += this.eloDelta;
-                MySqlCommand updateELO = new MySqlCommand("update saltyelo set elo = " + score + " where fighterName = '" + cleanName + "' and tier = '" + this.tier + "' and palette = '" + this.palette + "'; ", mySqlCon);
+                MySqlCommand updateELO = new MySqlCommand("update saltyelo set elo = " + score + " where fighterID = '"+ fighterID + "'; ", mySqlCon);
                 try
                 {
                     updateELO.ExecuteNonQuery();
