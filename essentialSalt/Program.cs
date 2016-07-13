@@ -31,6 +31,7 @@ namespace essentialSalt
         public static bool isRedTeam;
         private static double betModifier = 0.03; // our default, most conservative bet 3% of our balance, used for exhibs
         private static betMode currentMode = betMode.Exhibitions;
+        private static int oldBalance = 0;
 
         static void Main(string[] args)
         {
@@ -251,6 +252,7 @@ namespace essentialSalt
         //add fight to db if it doesn't exist, then wait for win or loss message, update who won.
         //if fight does exist, offer advice on who to bet on, wait for win/loss, update who won.
         gameCrash:
+            int balance = getBalance(cookieContainer);
             mySqlCon.ConnectionString = mySqlConnectString;
             stateJson currentState = getCurrentState();
             matchstatsJson currentMatch = getCurrentMatchStats(makeCookieContainer());
@@ -281,7 +283,9 @@ namespace essentialSalt
             try
             {
                 bool fighting = true;
-                makeBet(cookieContainer, currentFighters, getBalance(cookieContainer), redChanceToWin, currentMode);
+                Console.WriteLine("Current Salt: " + balance);
+                Console.WriteLine("Salt gained/lost on last bet: " + (balance - oldBalance));
+                makeBet(cookieContainer, currentFighters, balance , redChanceToWin, currentMode);
                 Console.WriteLine("Waiting for winner");
                 while (fighting)
                 {
@@ -294,7 +298,7 @@ namespace essentialSalt
                             updateELOs(newMatch, redChanceToWin, true);
                             isRedTeam = true;
                             recordWL(redChanceToWin);
-                            Console.WriteLine("red won");
+                            Console.WriteLine("Red wins!");
                             Console.WriteLine("W/L: " + wins + "/" + losses);
                             mySqlCon.Close();
                             fighting = false;
@@ -305,7 +309,7 @@ namespace essentialSalt
                             updateELOs(newMatch, redChanceToWin, false);
                             isRedTeam = false;
                             recordWL(redChanceToWin);
-                            Console.WriteLine("blue won");
+                            Console.WriteLine("Blue wins!");
                             Console.WriteLine("W/L: " + wins + "/" + losses);
                             mySqlCon.Close();
                             fighting = false;
@@ -428,6 +432,7 @@ namespace essentialSalt
 
         private static void makeBet(CookieContainer cookieContainer, List<fighter> currentFighters, int balance, double redChanceToWin, betMode currentMode)
         {
+            oldBalance = balance;
             try
             {
                 var request = (HttpWebRequest)WebRequest.Create("http://www.saltybet.com/ajax_place_bet.php");
@@ -441,11 +446,14 @@ namespace essentialSalt
                 else if(balance >=1000000)
                 {
                     betModifier /= 10;
-                }
-                
+                }                
                 if((redChanceToWin <= 10 || redChanceToWin >= 90) && currentMode != betMode.Tournament)
                 {
-                    betModifier *= 3;
+                    betModifier *= 3; //confident bet, lets bet alot, unless it's tournament we are already betting all our salt
+                }
+                else if (redChanceToWin >=45 && redChanceToWin <= 55 && currentMode != betMode.Tournament)
+                {
+                    betModifier = 0; //too close to call, lets not bet, unless it's tournament, then we will always go all in, no matter what
                 }
                 Console.WriteLine("Bet placed: $" + (int)(balance * betModifier));
                 postData += "&wager=" + (int)(balance * betModifier);
