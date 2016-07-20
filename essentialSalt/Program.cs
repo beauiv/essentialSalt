@@ -37,7 +37,10 @@ namespace essentialSalt
         {
 
             string oauth = File.ReadAllText("oauth.txt");
-            cookieText = File.ReadAllText("cookie.txt");
+            StreamReader readCookie = File.OpenText("cookie.txt");
+            cookieText = readCookie.ReadToEnd();
+            Console.WriteLine(cookieText);
+            Console.WriteLine(oauth);
             //sqlCon.ConnectionString = sqlConnectString;
             mySqlCon.ConnectionString = mySqlConnectString;
             matchstatsJson currentMatch = null;
@@ -51,13 +54,14 @@ namespace essentialSalt
                 currentMatch = getCurrentMatchStats(makeCookieContainer());
                 string s = currentMatch.p1name;
             }
-            catch
+            catch (Exception e)
             {
                 Console.WriteLine("can't find your cookie or your cookie is expired! please place in the same directory as the program and name it cookie.txt");
                 Console.WriteLine("file should contain 2 parts: __cfduid and PHPSESSID");
                 Console.WriteLine("e.g.");
                 Console.WriteLine("__cfduid=d2222290be446ee5e3c0b5436d6e852236466187773; PHPSESSID=g89dkhgtfpp2d9j3vh1lpr8x23");
                 Console.WriteLine("press any key to close the program");
+                Console.WriteLine(e);
                 Console.ReadKey();
                 return;
             }
@@ -438,22 +442,22 @@ namespace essentialSalt
                 var request = (HttpWebRequest)WebRequest.Create("http://www.saltybet.com/ajax_place_bet.php");
                 request.CookieContainer = cookieContainer;
                 var postData = "selectedplayer=player" + (isRedBestBet(redChanceToWin) ? 1 : 2);
-                //force 5% bet for testing todo: add betting logic based on current mode
                 if (balance <= 50000)
                 {
                     betModifier = 1;
                 }
                 else if(balance >=1000000)
                 {
-                    betModifier /= 10;
+                    betModifier /= 4;
                 }                
                 if((redChanceToWin <= 10 || redChanceToWin >= 90) && currentMode != betMode.Tournament)
                 {
                     betModifier *= 3; //confident bet, lets bet alot, unless it's tournament we are already betting all our salt
                 }
-                else if (redChanceToWin >=45 && redChanceToWin <= 55 && currentMode != betMode.Tournament)
+                else if (redChanceToWin >=46 && redChanceToWin <= 54 && currentMode != betMode.Tournament)
                 {
-                    betModifier = 0; //too close to call, lets not bet, unless it's tournament, then we will always go all in, no matter what
+                    balance = 10000;
+                    betModifier = 1; //close match, bet 10k to try and win some of dat good salt.
                 }
                 Console.WriteLine("Bet placed: $" + (int)(balance * betModifier));
                 postData += "&wager=" + (int)(balance * betModifier);
